@@ -28,6 +28,8 @@ def get_args():
     # ----------------------
     parser.add_argument('--config', type=str, default='./configs/AnomalyNCD.yaml', help='config file path')
     parser.add_argument('--runner_name', default='AnomalyNCD', type=str)
+    parser.add_argument('--only_test', type=str, default=None, help='test using the trained checkpoint')
+    parser.add_argument('--checkpoint_path', type=str, default=None, help='path of the trained checkpoint')
 
     args = parser.parse_args()
 
