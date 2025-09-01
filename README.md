@@ -9,6 +9,10 @@ Institutions: <sup>1</sup>Huazhong University of Science and Technology | <sup>2
 ### 🧐 [Arxiv](https://arxiv.org/pdf/2410.14379.pdf) | [OpenReview](https://openreview.net/forum?id=PNmlWDgJyH)
 
 ## 📣Updates:
+***09/01/2025***
+
+We have updated the code for standalone inference. Run the `scripts/anomalyncd_test.sh` script to load the trained checkpoint and perform inference.
+
 ***04/01/2025***
 
 The complete code of our method **AnomalyNCD** in [paper](https://arxiv.org/pdf/2410.14379.pdf) is released.

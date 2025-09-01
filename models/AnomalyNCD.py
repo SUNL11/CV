@@ -585,52 +585,64 @@ class AnomalyNCD():
         # training the model
         self.train_init()
 
-        params_groups = get_params_groups(self.model)
-        optimizer = SGD(params_groups, lr=self.args.lr, momentum=self.args.momentum, weight_decay=self.args.weight_decay)
+        if self.args.only_test:
+            self.args.checkpoint_path = os.path.join(self.args.checkpoint_path, 'checkpoints/model.pt')
+            if os.path.exists(self.args.checkpoint_path):
+                checkpoint = torch.load(self.args.checkpoint_path)
+                self.model.load_state_dict(checkpoint['model'])
+                self.args.logger.info("model loaded from {}, epoch {}, base_cls:{}.".format(self.args.checkpoint_path, checkpoint['epoch'], checkpoint['base_category']))
+            else:
+                raise ValueError('The checkpoint path does not exist.')
+            self.args.logger.info('Predicting for Sub-Image Classification...')
+            results_sub_images = self.sub_image_predict(epoch=checkpoint['epoch'], save_name='Sub-image prediction', loss_list=checkpoint['loss_list'])
+            self.args.logger.info('Region Merging for Image Classification...')
+            results_merge = self.region_merge_predict(epoch=checkpoint['epoch'], save_name='Region merged prediction', loss_list=checkpoint['loss_list'])
+        else:
+            params_groups = get_params_groups(self.model)
+            optimizer = SGD(params_groups, lr=self.args.lr, momentum=self.args.momentum, weight_decay=self.args.weight_decay)
 
-        exp_lr_scheduler = lr_scheduler.CosineAnnealingLR(
-                optimizer,
-                T_max=self.args.epochs,
-                eta_min=self.args.lr * 1e-3,
-            )
+            exp_lr_scheduler = lr_scheduler.CosineAnnealingLR(
+                    optimizer,
+                    T_max=self.args.epochs,
+                    eta_min=self.args.lr * 1e-3,
+                )
 
-        cluster_criterion = DistillLoss(
-                            warmup_teacher_temp_epochs=self.args.warmup_teacher_temp_epochs,
-                            nepochs=self.args.epochs,
-                            ncrops=self.args.n_views,
-                            warmup_teacher_temp=self.args.warmup_teacher_temp,
-                            teacher_temp=self.args.teacher_temp,
-                            num_labeled_classes=self.args.num_labeled_classes,
-                            num_unlabeled_classes=self.args.num_unlabeled_classes,
-                            student_temp=0.1,
-                            repeat_times=self.args.repeat_times
-                        )
+            cluster_criterion = DistillLoss(
+                                warmup_teacher_temp_epochs=self.args.warmup_teacher_temp_epochs,
+                                nepochs=self.args.epochs,
+                                ncrops=self.args.n_views,
+                                warmup_teacher_temp=self.args.warmup_teacher_temp,
+                                teacher_temp=self.args.teacher_temp,
+                                num_labeled_classes=self.args.num_labeled_classes,
+                                num_unlabeled_classes=self.args.num_unlabeled_classes,
+                                student_temp=0.1,
+                                repeat_times=self.args.repeat_times
+                            )
 
+            for epoch in range(self.args.epochs):
+                cluster_loss_head, loss_record = self.MGRL(epoch, optimizer, cluster_criterion)
 
-        for epoch in range(self.args.epochs):
-            cluster_loss_head, loss_record = self.MGRL(epoch, optimizer, cluster_criterion)
+                self.args.logger.info('Train Epoch: {} Avg Loss: {:.4f} '.format(epoch, loss_record.avg))
 
-            self.args.logger.info('Train Epoch: {} Avg Loss: {:.4f} '.format(epoch, loss_record.avg))
+                # Step schedule
+                exp_lr_scheduler.step()
 
-            # Step schedule
-            exp_lr_scheduler.step()
+                save_dict = {
+                    'model': self.model.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'epoch': epoch + 1,
+                    'loss_list': cluster_loss_head,
+                    'base_category': self.args.base_category,
+                    'category': self.args.category,
+                    'mask_layers': self.args.mask_layers
+                }
 
-            save_dict = {
-                'model': self.model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'epoch': epoch + 1,
-                'loss_list': cluster_loss_head,
-                'base_category': self.args.base_category,
-                'category': self.args.category,
-                'mask_layers': self.args.mask_layers
-            }
-
-            if epoch + 1 == self.args.epochs:
-                # Testing the results after training
-                self.args.logger.info('Predicting for Sub-Image Classification...')
-                results_sub_images = self.sub_image_predict(epoch=epoch, save_name='Sub-image prediction', loss_list=cluster_loss_head)
-                self.args.logger.info('Region Merging for Image Classification...')
-                results_merge = self.region_merge_predict(epoch=epoch, save_name='Region merged prediction', loss_list=cluster_loss_head)
-                # Save the model
-                torch.save(save_dict, self.args.model_path)
-                self.args.logger.info("model saved to {}_epoch{}, base_cls:{}.".format(self.args.model_path, epoch, self.args.num_labeled_classes))
+                if epoch + 1 == self.args.epochs:
+                    # Testing the results after training
+                    self.args.logger.info('Predicting for Sub-Image Classification...')
+                    results_sub_images = self.sub_image_predict(epoch=epoch, save_name='Sub-image prediction', loss_list=cluster_loss_head)
+                    self.args.logger.info('Region Merging for Image Classification...')
+                    results_merge = self.region_merge_predict(epoch=epoch, save_name='Region merged prediction', loss_list=cluster_loss_head)
+                    # Save the model
+                    torch.save(save_dict, self.args.model_path)
+                    self.args.logger.info("model saved to {}_epoch{}, base_cls:{}.".format(self.args.model_path, epoch, self.args.num_labeled_classes))
